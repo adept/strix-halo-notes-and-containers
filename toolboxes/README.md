@@ -5,6 +5,6 @@ llama-swap listens on :8080 and routes requests to llama.cpp and whisper.cpp. It
 Container is based on [@kyuz0's rocm 7.2 toolbox](https://github.com/kyuz0/amd-strix-halo-toolboxes/blob/main/toolboxes/Dockerfile.rocm-7.2), with dev stage extended to build whisper.cpp,
 and runtime stage extended to include a prebuilt static `ffmpeg` (so that whisper.cpp could convert incoming audio files to .wav) and prebuilt `llama-swap`.
 
-This assumes some level of familiarity with linux, containers, etc etc
+This assumes some level of familiarity with linux, containers, etc etc. I am assuming that you will read through the shell scripts before running them and amend them for your environment (adjusting paths, ports, contrainer name if you want). If you run it as-is, it will likely not work because my paths do not exist on your box. 
 
 Use `build.sh` to build the container, and `run.sh` to run it. When it runs, go to `http://<strix-halo-host>:8080/ui` to access llama-swap ui, which provides basic chat interface, access to logs, etc etc.
