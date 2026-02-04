@@ -127,3 +127,12 @@ At this point you should be able to run `llama-cli --version` while being inside
 ggml_cuda_init: found 1 ROCm devices:
   Device 0: Radeon 8060S Graphics, gfx1151 (0x1151), VMM: no, Wave Size: 32
 ```
+
+## Monitoring
+
+Install `amdgpu_top`:
+
+```bash
+wget https://github.com/Umio-Yasuno/amdgpu_top/releases/download/v0.11.0/amdgpu-top_without_gui_0.11.0-1_amd64.deb
+sudo dpkg -i amdgpu-top*
+```
