@@ -1,0 +1,162 @@
+# This dockerfile is heavily based on https://github.com/kyuz0/amd-strix-halo-toolboxes/blob/main/toolboxes/Dockerfile.rocm-7.2
+# build stage
+FROM registry.fedoraproject.org/fedora:43 AS builder
+
+# rocm 7.2 repo
+RUN <<'EOF'
+tee /etc/yum.repos.d/rocm.repo <<REPO
+[ROCm-7.2]
+name=ROCm7.2
+baseurl=https://repo.radeon.com/rocm/rhel10/7.2/main
+enabled=1
+priority=50
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+REPO
+EOF
+
+# deps
+RUN dnf -y --nodocs --setopt=install_weak_deps=False \
+  --exclude='*sdk*' --exclude='*samples*' --exclude='*-doc*' --exclude='*-docs*' \
+  install \
+  make gcc cmake lld clang clang-devel compiler-rt libcurl-devel ninja-build \
+  rocm-llvm rocm-device-libs hip-runtime-amd hip-devel \
+  rocblas rocblas-devel hipblas hipblas-devel rocm-cmake libomp-devel libomp \
+  rocminfo radeontop \
+  git-core vim sudo rsync \
+  && dnf clean all && rm -rf /var/cache/dnf/*
+
+# rocm env
+ENV ROCM_PATH=/opt/rocm \
+  HIP_PATH=/opt/rocm \
+  HIP_CLANG_PATH=/opt/rocm/llvm/bin \
+  HIP_DEVICE_LIB_PATH=/opt/rocm/amdgcn/bitcode \
+  PATH=/opt/rocm/bin:/opt/rocm/llvm/bin:$PATH
+
+# llama.cpp
+WORKDIR /opt/llama.cpp
+RUN git clone --recursive https://github.com/ggerganov/llama.cpp.git .
+
+# build llama.cpp
+RUN git clean -xdf \
+  && git submodule update --recursive \
+  && cmake -S . -B build \
+  -DGGML_HIP=ON \
+  -DAMDGPU_TARGETS=gfx1151 \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DGGML_RPC=ON \
+  -DLLAMA_HIP_UMA=ON \
+  -DGGML_CUDA_ENABLE_UNIFIED_MEMORY=ON \
+  -DROCM_PATH=/opt/rocm \
+  -DHIP_PATH=/opt/rocm \
+  -DHIP_PLATFORM=amd \
+  -DCMAKE_HIP_FLAGS="--rocm-path=/opt/rocm" \
+  && cmake --build build --config Release -- -j$(nproc) \
+  && cmake --install build --config Release
+
+# llama.cpp libs
+RUN find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/lib64/ \; \
+  && ldconfig
+
+# get whisper.cpp
+WORKDIR /opt/whisper.cpp
+RUN git clone --recursive https://github.com/ggerganov/whisper.cpp.git .
+
+# build whisper.cpp
+RUN git clean -xdf \
+  && git submodule update --recursive \
+  && cmake -S . -B build \
+  -DGGML_HIP=ON \
+  -DGGML_HIP_NO_VMM=1 \
+  -DGGML_ROCM=1 \
+  -DGPU_TARGETS=gfx1151 \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DROCM_PATH=/opt/rocm \
+  -DHIP_PATH=/opt/rocm \
+  -DHIP_PLATFORM=amd \
+  -DCMAKE_HIP_FLAGS="--rocm-path=/opt/rocm" \
+  && cmake --build build --config Release -- -j$(nproc) \
+  && cmake --install build --config Release
+
+# whisper.cpp libs
+RUN find /opt/whisper.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/lib64/ \; \
+  && ldconfig
+
+# helper
+# COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
+# RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
+
+# get and unpack llama-swap
+WORKDIR /app
+
+ARG LS_VER=189
+ARG LS_REPO=mostlygeek/llama-swap
+
+RUN \
+    curl -LO "https://github.com/${LS_REPO}/releases/download/v${LS_VER}/llama-swap_${LS_VER}_linux_amd64.tar.gz" && \
+    tar -zxf "llama-swap_${LS_VER}_linux_amd64.tar.gz" && \
+    rm "llama-swap_${LS_VER}_linux_amd64.tar.gz"
+
+# runtime stage
+FROM registry.fedoraproject.org/fedora-minimal:43
+
+# rocm 7.2 repo
+RUN <<'EOF'
+tee /etc/yum.repos.d/rocm.repo <<REPO
+[ROCm-7.2]
+name=ROCm7.2
+baseurl=https://repo.radeon.com/rocm/rhel10/7.2/main
+enabled=1
+priority=50
+gpgcheck=1
+gpgkey=https://repo.radeon.com/rocm/rocm.gpg.key
+REPO
+EOF
+
+# runtime deps
+RUN microdnf -y --nodocs --setopt=install_weak_deps=0 \
+  --exclude='*sdk*' --exclude='*samples*' --exclude='*-doc*' --exclude='*-docs*' \
+  install \
+  bash ca-certificates libatomic libstdc++ libgcc libgomp sudo \
+  hip-runtime-amd rocblas hipblas \
+  rocminfo radeontop procps-ng \
+  && microdnf clean all && rm -rf /var/cache/dnf/*
+
+# copy llama.cpp and whisper.cpp
+COPY --from=builder /usr/local/ /usr/local/
+COPY --from=builder /opt/llama.cpp/build/bin/rpc-* /usr/local/bin/
+
+# ld config
+RUN echo "/usr/local/lib"  > /etc/ld.so.conf.d/local.conf \
+  && echo "/usr/local/lib64" >> /etc/ld.so.conf.d/local.conf \
+  && ldconfig \
+  && cp -n /usr/local/lib/libllama*.so* /usr/lib64/ 2>/dev/null || true \
+  && ldconfig
+
+# helper
+# COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
+# RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
+
+# user profile
+RUN printf '%s\n' \
+  > /etc/profile.d/rocm.sh && chmod +x /etc/profile.d/rocm.sh \
+  && echo 'source /etc/profile.d/rocm.sh' >> /etc/bashrc
+
+# add statically built ffmpeg
+COPY --from=docker.io/mwader/static-ffmpeg:latest /ffmpeg /usr/local/bin/
+COPY --from=docker.io/mwader/static-ffmpeg:latest /ffprobe /usr/local/bin/
+
+# copy llama-swap
+WORKDIR /app
+
+# Add /app to PATH
+ENV PATH="/app:${PATH}"
+
+COPY --from=builder /app /app
+
+# COPY --chown=$UID:$GID config.example.yaml /app/config.yaml
+
+# HEALTHCHECK CMD curl -f http://localhost:8080/ || exit 1
+
+# When ran as a container, start llama-swap
+ENTRYPOINT [ "/app/llama-swap", "-config", "/app/config.yaml" ]
