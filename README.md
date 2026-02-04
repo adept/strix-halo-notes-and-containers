@@ -2,5 +2,5 @@
 ... to run local LLMs using kernel 6.18 + rocm 7.2.
 
 Contents:
-- ubuntu setup notes
+- [ubuntu setup notes](setup.md)
 - Docker/Podman container with llama.cpp/whisper.cpp/llama-swap
