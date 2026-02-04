@@ -1,0 +1,95 @@
+# llama-swap YAML configuration example
+healthCheckTimeout: 60
+logLevel: info
+logTimeFormat: "rfc3339"
+
+logToStdout: "proxy"
+metricsMaxInMemory: 1000
+startPort: 12000
+
+includeAliasesInList: false
+
+macros:
+  "default_args": "--flash-attn 1 --no-mmap --n-gpu-layers 999"
+
+models:
+  "qwen3-coder-30b":
+    ttl: 600
+    cmd: llama-server --port ${PORT} --model /models/qwen3-coder-30B-A3B-Instruct-BF16.gguf ${default_args}
+
+  "qwen3-vl-30b":
+    ttl: 600
+    cmd: llama-server --port ${PORT} --model /models/Qwen3-VL-30B-A3B-Instruct-GGUF/Qwen3-VL-30B-A3B-Instruct-UD-Q8_K_XL.gguf --mmproj /models/Qwen3-VL-30B-A3B-Instruct-GGUF/mmproj-BF16.gguf ${default_args}
+
+  "qwen3-vl-8b":
+    ttl: 180
+    cmd: llama-server --port ${PORT} --model /models/Qwen3-VL-8B-Instruct-GGUF/Qwen3-VL-8B-Instruct-UD-Q8_K_XL.gguf --mmproj /models/Qwen3-VL-8B-Instruct-GGUF/mmproj-BF16.gguf ${default_args}
+
+  "gemma-3-27b":
+    ttl: 600
+    cmd: llama-server --port ${PORT} --model /models/gemma-3-27b-it-GGUF/gemma-3-27b-it-UD-Q8_K_XL.gguf ${default_args}
+
+  "gemma-3-12b":
+    ttl: 300
+    cmd: llama-server --port ${PORT} --model /models/gemma-3-12b-it-GGUF/gemma-3-12b-it-UD-Q8_K_XL.gguf ${default_args}
+
+  "gemma-3-4b":
+    ttl: 180
+    cmd: llama-server --port ${PORT} --model /models/gemma-3-4b-it-GGUF/gemma-3-4b-it-Q3_K_S.gguf ${default_args}
+
+  "gemma-2":
+    ttl: 180
+    cmd: llama-server --port ${PORT} --model /models/gemma-2-it-GGUF/gemma-2-2b-it.q8_0.gguf ${default_args}
+
+  "glm-4.7-flash":
+    ttl: 600
+    cmd: llama-server --port ${PORT} --model /models/GLM-4.7-Flash-GGUF/GLM-4.7-Flash-UD-Q8_K_XL.gguf ${default_args}
+    #name: "GLM-4.7 Flash Q8_K_XL"
+
+  "gpt-oss-20b":
+    ttl: 600
+    cmd: llama-server --port ${PORT} --model /models/gpt-oss-20b-GGUF/gpt-oss-20b-UD-Q8_K_XL.gguf ${default_args}
+    #name: "gpt-oss 20b Q8_K_XL"
+
+  "whisper":
+    ttl: 0
+    proxy: "http://127.0.0.1:7070"
+    checkEndpoint: /v1/audio/transcriptions/
+    cmd: >
+      whisper-server
+        --host 127.0.0.1 --port 7070
+        -m /models/whisper/ggml-large-v3-turbo.bin -pp -l en --vad -vm /models/whisper/ggml-silero-v6.2.0.bin
+        --convert --tmp-dir /models/whisper-convert/
+        --request-path /v1/audio/transcriptions --inference-path ""
+
+  "gpt-oss-120b":
+    ttl: 600
+    cmd: llama-server --port ${PORT} --model /models/gpt-oss-120b-UD-Q8_K_XL.gguf ${default_args}
+
+groups:
+  "medium-fish":
+    swap: true
+    exclusive: false
+    members:
+      - "gpt-oss-120b"
+      - "gpt-oss-20b"
+      - "gml-4.7-flash"
+      - "qwen3-coder-30b"
+      - "qwen3-vl-30b"
+
+  "small-fish":
+    swap: false
+    exclusive: false
+    members:
+      - "gemma-2"
+      - "gemma-3-4b"
+      - "gemma-3-12b"
+      - "gemma-3-27b"
+      - "qwen3-vl-8b"
+
+  "forever":
+    persistent: true
+    swap: false
+    exclusive: false
+    members:
+      - "whisper"
